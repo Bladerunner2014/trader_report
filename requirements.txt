@@ -6,3 +6,5 @@ redis~=4.3.4
 swagger-ui-py~=22.7.13
 psycopg2~=2.9.5
 confluent-kafka~=1.9.2
+pytz
+pymongo

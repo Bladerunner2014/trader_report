@@ -6,7 +6,7 @@ from http_handler.response_handler import ResponseHandler
 from constants.error_message import ErrorMessage
 from http_handler.request_handler import RequestHandler
 from constants.status_code import StatusCode
-from time_converter import UTCTime
+from managers.time_converter import UTCTime
 from dao.traderdao import TraderDao
 from constants.info_message import InfoMessage
 
@@ -22,7 +22,7 @@ class Report:
         self.trader, status = self.trader_info(trader_id)
         self.secret_key = self.trader['secret_key']
         self.api_key = self.trader['api_key']
-        self.exchange = self.trader["exchange"]
+        self.exchange = "Bybit"
         self.utctime = UTCTime()
         self.win_rate = None
         self.wallet_ballance = None
@@ -44,8 +44,9 @@ class Report:
             error_log_dict=ErrorMessage.EXCHANGE_ERROR_LOGS,
             body=request_json)
         if wallet_response_status_code == StatusCode.SUCCESS:
-            self.equity = wallet_response["USDT"]["equity"]
-            self.wallet_ballance = wallet_response["USDT"]["wallet_balance"]
+            print (wallet_response)
+            self.equity = wallet_response[0]["result"]["USDT"]["equity"]
+            self.wallet_ballance = wallet_response[0]["result"]["USDT"]["wallet_balance"]
             position_response, position_response_status_code = self.request_handler.send_post_request(
                 base_url=self.config["EXCHANGE_BASE_URL"],
                 port=self.config["EXCHANGE_PORT"],
@@ -56,7 +57,7 @@ class Report:
             if position_response_status_code == StatusCode.SUCCESS:
                 asset_buy = {}
                 asset_sell = {}
-                for data in position_response:
+                for data in position_response[0]["result"]:
                     if data["data"]["size"] != 0:
                         if data["data"]["side"] == "Buy":
                             asset_buy.update({data["data"]["symbol"]: float(data["data"]["position_value"])})
@@ -266,7 +267,7 @@ class Report:
         if response_status_code == StatusCode.SUCCESS:
             res.set_status_code(StatusCode.SUCCESS)
             res.set_response(response)
-            return res.status_code, res.response
+            return res.response, res.status_code
         else:
             res.set_status_code(StatusCode.BAD_REQUEST)
             res.set_response(response)

@@ -14,7 +14,7 @@ class UTCTime:
         return dt_utc.strftime(format)
 
     @staticmethod
-    def time_delta(startdate=datetime.datetime.now().strftime('%d.%m.%Y %H:%M:%S'), days=None, hour=None, minute=None,
+    def time_delta(startdate=datetime.now().strftime('%d.%m.%Y %H:%M:%S'), days=None, hour=None, minute=None,
                    second=None):
         startdate = datetime.datetime.strptime(str(startdate), '%d.%m.%Y %H:%M:%S')
         if days:
@@ -24,7 +24,7 @@ class UTCTime:
         return delta_dt.strftime('%d.%m.%Y %H:%M:%S')
 
     @staticmethod
-    def time_delta_timestamp(startdate=datetime.datetime.now().strftime('%d.%m.%Y %H:%M:%S'), days=None, hour=None,
+    def time_delta_timestamp(startdate=datetime.now().strftime('%d.%m.%Y %H:%M:%S'), days=None, hour=None,
                              minute=None, second=None):
         startdate = datetime.datetime.strptime(str(startdate), '%d.%m.%Y %H:%M:%S')
         if days:
