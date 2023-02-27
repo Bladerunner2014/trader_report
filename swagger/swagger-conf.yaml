@@ -1,0 +1,46 @@
+swagger: '2.0'
+info:
+  description: Auth Project
+  version: 1.0.0
+  title: Auth
+basePath: /v1
+schemes:
+  - https
+  - http_handler
+paths:
+  /login:
+    post:
+      tags:
+        - login
+      summary: login user
+      description: ''
+      operationId: loginUser
+      consumes:
+        - application/json
+      produces:
+        - application/json
+      parameters:
+        - in: body
+          name: body
+          description: email and password to verify
+          required: true
+          schema:
+            $ref: '#/definitions/User'
+      responses:
+        '200':
+          description: ok
+        '401':
+          description: field missing
+definitions:
+  User:
+    type: object
+    required:
+      - email
+      - password
+    properties:
+      email:
+        type: string
+        example: user@email.com
+      password:
+        type: string
+        example: password
