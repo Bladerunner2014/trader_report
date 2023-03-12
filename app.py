@@ -13,21 +13,20 @@ config = dotenv_values(".env")
 logger = logging.getLogger(__name__)
 
 
-@v1_blueprint.route("/asset", methods=["GET"])
-def asset():
-    user_id = request.headers.get('user_id')
-    rep = Report(user_id)
-    res = rep.asset_report()
+@v1_blueprint.route("/asset/<string:user_id>", methods=["GET"])
+def asset(user_id):
+
     if user_id is None:
         logger.error(ErrorMessage.BAD_REQUEST)
         return ErrorMessage.BAD_REQUEST, StatusCode.BAD_REQUEST
+    rep = Report(user_id)
+    res = rep.asset_report()
 
     return res.generate_response()
 
 
-@v1_blueprint.route("/pnl", methods=["GET"])
-def seven_day_pnl_ratio():
-    user_id = request.headers.get('user_id')
+@v1_blueprint.route("/pnl/<string:user_id>", methods=["GET"])
+def seven_day_pnl_ratio(user_id):
     if user_id is None:
         logger.error(ErrorMessage.BAD_REQUEST)
         return ErrorMessage.BAD_REQUEST, StatusCode.BAD_REQUEST
@@ -37,18 +36,27 @@ def seven_day_pnl_ratio():
     return res.generate_response()
 
 
-@v1_blueprint.route("/roi", methods=["GET"])
-def roi():
-    user_id = request.headers.get('user_id')
+@v1_blueprint.route("/active-order/<string:user_id>", methods=["GET"])
+def active_order(user_id):
+    if user_id is None:
+        logger.error(ErrorMessage.BAD_REQUEST)
+        return ErrorMessage.BAD_REQUEST, StatusCode.BAD_REQUEST
+    rep = Report(user_id)
+    res = rep.active_order()
+
+    return res.generate_response()
+
+
+
+
+@v1_blueprint.route("/roi/<string:user_id>", methods=["GET"])
+def roi(user_id):
     if user_id is None:
         logger.error(ErrorMessage.BAD_REQUEST)
         return ErrorMessage.BAD_REQUEST, StatusCode.BAD_REQUEST
     rep = Report(user_id)
     res = rep.seven_day_pnl_ratio_roi()
     return res.generate_response()
-
-
-
 
 
 swagger.run_swagger(app)

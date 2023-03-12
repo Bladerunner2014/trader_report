@@ -12,16 +12,19 @@ from constants.info_message import InfoMessage
 
 
 class Report:
-    def __init__(self, trader_id):
+    def __init__(self, trader_id: str):
+        self.daily_closed_pnl_list = None
+        self.active_order_exchange = None
+        self.order_id_in_exchange = None
+        self.total_pnl = None
+        self.closed_pnl_list = None
         self.order_pnl = None
         self.seven_day_pnl_report = None
         self.request_handler = RequestHandler()
         self.config = dotenv_values(".env")
         self.trader_id = trader_id
         self.logger = logging.getLogger(__name__)
-        self.trader, status = self.trader_info(trader_id)
-        self.secret_key = self.trader['secret_key']
-        self.api_key = self.trader['api_key']
+        self.trader_id = trader_id
         self.exchange = "Bybit"
         self.utctime = UTCTime()
         self.win_rate = None
@@ -34,6 +37,14 @@ class Report:
     def asset_report(self):
         res = ResponseHandler()
 
+        self.trader, status = self.trader_info(self.trader_id)
+        if status == StatusCode.NOT_FOUND:
+            res.set_status_code(status)
+            res.set_response(self.trader)
+            return res
+        self.secret_key = self.trader['secret_key']
+        self.api_key = self.trader['api_key']
+
         request_json = self.request_handler.create_json_from_args(key=self.api_key, secret=self.secret_key,
                                                                   exchange=self.exchange)
         wallet_response, wallet_response_status_code = self.request_handler.send_post_request(
@@ -44,7 +55,7 @@ class Report:
             error_log_dict=ErrorMessage.EXCHANGE_ERROR_LOGS,
             body=request_json)
         if wallet_response_status_code == StatusCode.SUCCESS:
-            print (wallet_response)
+            print(wallet_response)
             self.equity = wallet_response[0]["result"]["USDT"]["equity"]
             self.wallet_ballance = wallet_response[0]["result"]["USDT"]["wallet_balance"]
             position_response, position_response_status_code = self.request_handler.send_post_request(
@@ -78,59 +89,57 @@ class Report:
             res.set_response({"message": ErrorMessage.EXCHANGE_ERROR_LOGS, "response": wallet_response})
             return res
 
-    # TODO: total_daily_pnl
-    def generate_daily_pnl_report(self, user_id):
-        endtime = self.utctime.time_delta_timestamp()
-        starttime = self.utctime.time_delta_timestamp(days=1)
-        res = ResponseHandler()
-        db_query = {"trader_id": user_id, "action": "orders_list"}
-        orders_in_mongo = self.get_history_from_mongo(db_query)
-        coins = [info["symbol"] for info in orders_in_mongo]
-        order_pnl = []
-        for coin in coins:
-            request_json = self.request_handler.create_json_from_args(key=self.api_key, secret=self.secret_key,
-                                                                      exchange=self.exchange,
-                                                                      startTime=starttime, endTime=endtime, symbol=coin)
-            pnl_response, pnl_response_status_code = self.request_handler.send_post_request(
-                base_url=self.config["EXCHANGE_BASE_URL"],
-                port=self.config["EXCHANGE_PORT"],
-                end_point=self.config["EXCHANGE_POST_PNL_URL"],
-                timeout=self.config["EXCHANGE_TIMEOUT"],
-                error_log_dict=ErrorMessage.EXCHANGE_ERROR_LOGS,
-                body=request_json)
-            if pnl_response_status_code == StatusCode.SUCCESS:
 
-                pnl_response = pnl_response["result"]
-                matched_pnl = self.filter_orders(exchange_orders=pnl_response["data"], db_orders=orders_in_mongo)
-
-                for orders in matched_pnl:
-                    order_pnl.append(float(orders["closed_pnl"]))
-
-            else:
-                res.set_status_code(StatusCode.INTERNAL_ERROR)
-                res.set_response({"message": ErrorMessage.EXCHANGE_ERROR_LOGS, "response": pnl_response})
-                return res
-        total_daily_pnl = sum(order_pnl)
-        res.set_status_code(StatusCode.SUCCESS)
-        res.set_response({"total_daily_pnl": total_daily_pnl})
-        return res
 
     # TODO: weekly_report_pnl, total_weekly_report_pnl
     def generate_weekly_pnl_report(self):
         res = ResponseHandler()
+
+        self.trader, status = self.trader_info(self.trader_id)
+
+        if status == StatusCode.NOT_FOUND:
+            res.set_status_code(status)
+            res.set_response(self.trader)
+            return res
+        self.secret_key = self.trader['secret_key']
+        self.api_key = self.trader['api_key']
+        self.asset_report()
+        cumulative_roi = []
+        cumulative_pnl = []
         self.seven_day_pnl_report = []
         weekly_pnl = {}
+        daily_roi = {}
+        db_query = {"trader_info": 4, "action": "open_position"}
+        orders_in_mongo = self.get_history_from_mongo(db_query)
+        order_id_in_mongo_db = []
+        for order in orders_in_mongo:
+            try:
+                order_id_in_mongo_db.append(order["result"][0]["result"]["order_id"])
+            except (TypeError, KeyError):
+                continue
+
+        coins = [info["data"]["symbol"] for info in orders_in_mongo]
+        coins = list(dict.fromkeys(coins))
+        self.closed_pnl_list = []
+        self.order_id_in_exchange = []
+        self.daily_closed_pnl_list = {}
+
         for day in range(0, 7):
+            daily_pnl_list = []
+
             endtime = self.utctime.time_delta_timestamp(days=day)
             starttime = self.utctime.time_delta_timestamp(days=day + 1)
-            db_query = {"trader_id": self.trader_id, "action": "orders_list"}
-            orders_in_mongo = self.get_history_from_mongo(db_query)
-            coins = [info["symbol"] for info in orders_in_mongo]
+            self.logger.info("day {}".format(day))
+            self.total_pnl = 0
             self.order_pnl = []
             for coin in coins:
+                self.logger.info("prepare for new request to exchange")
                 request_json = self.request_handler.create_json_from_args(key=self.api_key, secret=self.secret_key,
-                                                                          exchange=self.exchange, start_time=starttime,
-                                                                          end_time=endtime, symbol=coin)
+                                                                          exchange=self.exchange,
+                                                                          start_time=str(int(starttime)),
+                                                                          end_time=str(int(endtime)), symbol=coin)
+                self.logger.info("symbol {}".format(coin))
+                self.logger.info("request json {}".format(request_json))
                 pnl_response, response_status_code = self.request_handler.send_post_request(
                     base_url=self.config["EXCHANGE_BASE_URL"],
                     port=self.config["EXCHANGE_PORT"],
@@ -138,86 +147,115 @@ class Report:
                     timeout=self.config["EXCHANGE_TIMEOUT"],
                     error_log_dict=ErrorMessage.EXCHANGE_ERROR_LOGS,
                     body=request_json)
-                if response_status_code == StatusCode.SUCCESS:
+                self.logger.info("request sent")
+                if response_status_code == StatusCode.SUCCESS and pnl_response[0]["ret_code"] == 0:
+                    if pnl_response[0]["result"]['data'] is not None:
+                        for closed in pnl_response[0]["result"]['data']:
+                            self.order_id_in_exchange.append(closed["order_id"])
+                            # if closed["order_id"] in order_id_in_mongo_db:
+                            self.total_pnl += float(closed["closed_pnl"])
+                            self.closed_pnl_list.append(closed)
+                            daily_pnl_list.append(closed)
+                self.daily_closed_pnl_list.update({"{} day ago".format(day): daily_pnl_list})
+            roi = self.daily_roi_cumulative(daily_pnl_list)
+            daily_roi.update({f"{day} days ago": roi})
+            cumulative_roi.insert(0, roi)
+            cumulative_pnl.insert(0, self.total_pnl)
 
-                    pnl_response = pnl_response["result"]
-
-                    matched_pnl = self.filter_orders(exchange_orders=pnl_response["data"], db_orders=orders_in_mongo)
-                    self.seven_day_pnl_report.append(matched_pnl)
-                    for orders in matched_pnl:
-                        self.order_pnl.append(float(orders["closed_pnl"]))
-                else:
-                    res.set_status_code(StatusCode.INTERNAL_ERROR)
-                    res.set_response({"message": ErrorMessage.EXCHANGE_ERROR_LOGS, "response": pnl_response})
-                    return res
-            total_pnl = sum(self.order_pnl)
-            weekly_pnl.update({f"{day} days ago": total_pnl})
+            self.seven_day_pnl_report.append(self.total_pnl)
+            weekly_pnl.update({f"{day} days ago": self.total_pnl})
         total_weekly_pnl = sum(weekly_pnl.values())
-
+        # print(self.closed_pnl_list)
+        print(self.daily_closed_pnl_list)
+        print(order_id_in_mongo_db)
+        print(self.order_id_in_exchange)
+        self.common_member(self.order_id_in_exchange, order_id_in_mongo_db)
+        roi_cumulative_chart = self.cumulative(cumulative_roi)
+        pnl_cumulative_chart = self.cumulative(cumulative_pnl)
         res.set_status_code(StatusCode.SUCCESS)
-        res.set_response({"weekly_report_pnl": weekly_pnl, "total_weekly_report_pnl": total_weekly_pnl})
+        res.set_response(
+            {"weekly_report_pnl": weekly_pnl, "total_weekly_report_pnl": total_weekly_pnl, "daily_roi": daily_roi, "cumulative_roi": roi_cumulative_chart, "cumulative_pnl": pnl_cumulative_chart})
+
         return res
 
-    # TODO: "total_trades", "win_trade", "lose_trade","pnl_ratio","average_pnl", "trader_total_roi","trading_days"
+    @staticmethod
+    def cumulative(sorted_ls: list):
+        cu_list = []
+        length = len(sorted_ls)
+        cu_list = [sum(sorted_ls[0:x:1]) for x in range(0, length + 1)]
+        res = cu_list[1:]
+        res.reverse()
 
+        return res
+
+    def daily_roi_cumulative(self, daily_pnl_list):
+
+        order_sell = []
+        order_buy = []
+
+        for order in daily_pnl_list:
+            if order["side"] == "Sell":
+                order_sell.append(order)
+            if order["side"] == "Buy":
+                order_buy.append(order)
+        roi = self.roi_calculator(order_buy, order_sell)
+        trader_total_roi = sum(roi)
+
+        return trader_total_roi
+
+    # TODO: "total_trades", "win_trade", "lose_trade","pnl_ratio","average_pnl", "trader_total_roi","trading_days"
     def seven_day_pnl_ratio_roi(self):
         res = ResponseHandler()
 
-        useless_response = self.generate_weekly_pnl_report()
+        self.trader, status = self.trader_info(self.trader_id)
+        if status == StatusCode.NOT_FOUND:
+            res.set_status_code(status)
+            res.set_response(self.trader)
+            return res
+        self.secret_key = self.trader['secret_key']
+        self.api_key = self.trader['api_key']
+        trading_days = self.utctime.days_between(self.trader["created_at"])
 
-        if self.seven_day_pnl_report:
-            pnl_for_ever = self.unpack_weekly_pnl(self.seven_day_pnl_report)
+        useless_response = self.generate_weekly_pnl_report()
+        if len(self.closed_pnl_list) > 0:
+            negative = float(-1)
+            pnl_for_ever = self.seven_day_pnl_report
             total_profit = float(0)
             total_loss = float(0)
-            total_trades = len(self.order_pnl)
+            # total_trades = len(self.order_pnl)
+            total_trades = len(self.closed_pnl_list)
             win_trade = int(0)
             lose_trade = int(0)
 
-            for pnl in self.order_pnl:
-                if pnl > 0:
-                    total_profit += pnl
+            for pnl in self.closed_pnl_list:
+                if pnl["closed_pnl"] > 0:
+                    total_profit += pnl["closed_pnl"]
                     win_trade += 1
-                elif pnl < 0:
-                    total_loss += pnl
+                elif pnl["closed_pnl"] < 0:
+                    total_loss += pnl["closed_pnl"]
                     lose_trade += 1
-            pnl_ratio = total_profit / total_loss
-            average_pnl = win_trade / total_trades
+            if total_loss == 0:
+                pnl_ratio = 100
+            else:
+
+                pnl_ratio = total_profit / negative * total_loss
+            average_pnl = (total_loss + total_profit) / total_trades
 
             # Trader ROI
             # classify buy and sell positions
             order_buy = []
             order_sell = []
-            for order in pnl_for_ever:
+            for order in self.closed_pnl_list:
                 if order["side"] == "Sell":
                     order_sell.append(order)
                 if order["side"] == "Buy":
                     order_buy.append(order)
             # calculate roi
-            total_asset, status = self.asset_report().generate_response()
-            total_asset = total_asset["total_asset"]
-            roi_per_order = []
-            negative = float(-1)
+            useless = self.asset_report()
 
-            for order in order_buy:
-                if order["pnl"] > 0:
-                    roi = float((order["take_profit"] / order["price"]) * (order["qty"] / total_asset))
-                    roi_per_order.append(roi)
-
-                if order["pnl"] < 0:
-                    roi = float(negative * (order["price"] / order["stop_loss"]) * (order["qty"] / total_asset))
-                    roi_per_order.append(roi)
-
-            for order in order_sell:
-                if order["pnl"] > 0:
-                    roi = float((order["price"] / order["take_profit"]) * (order["qty"] / total_asset))
-                    roi_per_order.append(roi)
-
-                if order["pnl"] < 0:
-                    roi = float(negative * (order["stop_loss"] / order["price"]) * (order["qty"] / total_asset))
-                    roi_per_order.append(roi)
+            roi_per_order = self.roi_calculator(order_buy, order_sell)
 
             trader_total_roi = sum(roi_per_order)
-            trading_days = self.utctime.days_between(self.trader["created_at"])
 
             res.set_status_code(StatusCode.SUCCESS)
             res.set_response({"total_trades": total_trades, "win_trade": win_trade, "lose_trade": lose_trade,
@@ -225,32 +263,114 @@ class Report:
                               "trading_days": trading_days})
             return res
 
+
         else:
-            res.set_status_code(StatusCode.INTERNAL_ERROR)
+            res.set_status_code(StatusCode.SUCCESS)
+            res.set_response({"total_trades": 0, "win_trade": 0, "lose_trade": 0,
+                              "pnl_ratio": 0, "average_pnl": 0, "trader_total_roi": 0,
+                              "trading_days": trading_days})
         return res
+
+    def roi_calculator(self, order_buy, order_sell):
+        roi_per_order = []
+        for order in order_buy:
+            if order["closed_pnl"] > 0:
+                roi = float((order["closed_pnl"] / order["avg_entry_price"]) * (order["qty"] / self.equity))
+                roi_per_order.append(roi)
+
+            if order["closed_pnl"] < 0:
+                roi = float(
+                    (order["closed_pnl"] / order["avg_exit_price"]) * (order["qty"] / self.equity))
+                roi_per_order.append(roi)
+
+        for order in order_sell:
+            if order["closed_pnl"] > 0:
+                roi = float((order["avg_entry_price"] / order["closed_pnl"]) * (order["qty"] / self.equity))
+                roi_per_order.append(roi)
+
+            if order["closed_pnl"] < 0:
+                roi = float(
+                    (order["closed_pnl"] / order["avg_exit_price"]) * (order["qty"] / self.equity))
+                roi_per_order.append(roi)
+
+        return roi_per_order
 
     # TODO: get_history_from_mongo
 
     def get_history_from_mongo(self, condition: dict):
         try:
             result = self.dao.find(condition)
-            self.logger.error(InfoMessage.DB_FIND)
+            self.logger.info(InfoMessage.DB_FIND)
         except Exception as error:
             self.logger.error(ErrorMessage.DB_SELECT)
             self.logger.error(error)
             raise Exception
 
-        list_of_orders = []
-        for item in result:
-            list_of_orders.append(item["data"])
+        # list_of_orders = []
+        # for item in result:
+        #     list_of_orders.append(item["data"])
 
-        return list_of_orders
+        return result
+
+    def active_order(self):
+        res = ResponseHandler()
+
+        self.trader, status = self.trader_info(self.trader_id)
+        if status == StatusCode.NOT_FOUND:
+            res.set_status_code(status)
+            res.set_response(self.trader)
+            return res
+        self.secret_key = self.trader['secret_key']
+        self.api_key = self.trader['api_key']
+        db_query = {"trader_info": 4, "action": "open_position"}
+        orders_in_mongo = self.get_history_from_mongo(db_query)
+        coins = [info["data"]["symbol"] for info in orders_in_mongo]
+        coins = list(dict.fromkeys(coins))
+        endtime = self.utctime.time_delta_timestamp(days=0)
+        starttime = self.utctime.time_delta_timestamp(days=7)
+        self.active_order_exchange = []
+        order_id_in_mongo_db = []
+        final_resonse = []
+        for order in orders_in_mongo:
+            try:
+                order_id_in_mongo_db.append(order["result"][0]["result"]["order_id"])
+            except (TypeError, KeyError):
+                continue
+
+        for coin in coins:
+            self.logger.info("prepare for new request to exchange")
+            request_json = self.request_handler.create_json_from_args(key=self.api_key, secret=self.secret_key,
+                                                                      exchange=self.exchange,
+                                                                      start_time=str(int(starttime)),
+                                                                      end_time=str(int(endtime)), symbol=coin)
+            self.logger.info("symbol {}".format(coin))
+            self.logger.info("request json {}".format(request_json))
+            active_order, response_status_code = self.request_handler.send_post_request(
+                base_url=self.config["EXCHANGE_BASE_URL"],
+                port=self.config["EXCHANGE_PORT"],
+                end_point=self.config["EXCHANGE_GET_ORDER"],
+                timeout=self.config["EXCHANGE_TIMEOUT"],
+                error_log_dict=ErrorMessage.EXCHANGE_ERROR_LOGS,
+                body=request_json)
+            if response_status_code == StatusCode.SUCCESS and active_order[0]["ret_code"] == 0:
+                if active_order[0]["result"]['data'] is not None:
+                    for order in active_order[0]["result"]['data']:
+                        if order["order_id"] in order_id_in_mongo_db:
+                            final_resonse.append(
+                                {"status": order["order_status"], "side": order["side"], "symbol": order["symbol"],
+                                 "created_time": order["created_time"], "updated_at": order["updated_time"],
+                                 "take_profit": order["take_profit"]})
+                        self.active_order_exchange.append(order["order_id"])
+
+        self.common_member(self.active_order_exchange, order_id_in_mongo_db)
+        res.set_response(final_resonse)
+        res.set_status_code(StatusCode.SUCCESS)
+        return res
 
     # TODO: trader_info
 
     def trader_info(self, trader_user_id: str):
         req = RequestHandler()
-        res = ResponseHandler()
         try:
             response, response_status_code = req.send_get_request(base_url=self.config["TRADER_BASE_URL"],
                                                                   end_point=self.config[
@@ -264,36 +384,18 @@ class Report:
             self.logger.error(error)
             raise Exception
 
-        if response_status_code == StatusCode.SUCCESS:
-            res.set_status_code(StatusCode.SUCCESS)
-            res.set_response(response)
-            return res.response, res.status_code
-        else:
-            res.set_status_code(StatusCode.BAD_REQUEST)
-            res.set_response(response)
-            return res.generate_response()
+        return response, response_status_code
 
     # TODO: INSTEAD OF TWO FOR LOOP, SEND QUERY REQUEST TO MONGO
     @staticmethod
-    def filter_orders(exchange_orders, db_orders):
-        # match_ord = []
-        # for ord in exchange_orders:
-        #     condition = {"trader_info": ord["order_id"], "action": "open_position"}
-        #     try:
-        #         match_ord.append(self.dao.find(condition))
-        #         self.logger.error(InfoMessage.DB_FIND)
-        #     except Exception as error:
-        #         self.logger.error(ErrorMessage.DB_SELECT)
-        #         self.logger.error(error)
-        #         raise Exception
-        matched_orders = []
-        for e_order in exchange_orders:
-            for d_order in db_orders:
-                if e_order["order_id"] == d_order["order_id"]:
-                    d_order["pnl"] = e_order["closed_pnl"]
-                    matched_orders.append(d_order)
+    def common_member(a, b):
+        a_set = set(a)
+        b_set = set(b)
 
-        return matched_orders
+        if (a_set & b_set):
+            print("Common id {}".format(a_set & b_set))
+        else:
+            print("No common elements")
 
     @staticmethod
     def create_dict_from_two_lists(res: list, keys: list):
