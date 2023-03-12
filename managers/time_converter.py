@@ -4,16 +4,14 @@ from datetime import timezone
 
 
 class UTCTime:
-    @staticmethod
-    def local_to_utc_date_time():
+    def local_to_utc_date_time(self):
         dt_str = datetime.datetime.now().strftime("%Y.%m.%d %H:%M:%S")
         format = "%Y.%m.%d %H:%M:%S"
         local_dt = datetime.datetime.strptime(dt_str, format)
         dt_utc = local_dt.astimezone(pytz.UTC)
         return dt_utc.strftime(format)
 
-    @staticmethod
-    def time_delta(startdate=datetime.datetime.now().strftime('%Y.%m.%d %H:%M:%S'), days=None, hour=None, minute=None,
+    def time_delta(self,startdate=datetime.datetime.now().strftime('%Y.%m.%d %H:%M:%S'), days=None, hour=None, minute=None,
                    second=None):
         startdate = datetime.datetime.strptime(str(startdate), '%Y.%m.%d %H:%M:%S')
         if days:
@@ -22,9 +20,9 @@ class UTCTime:
             delta_dt = startdate.replace(hour=hour, minute=minute, second=second)
         return delta_dt.strftime('%Y.%m.%d %H:%M:%S')
 
-    @staticmethod
-    def time_delta_timestamp(startdate=local_to_utc_date_time(), days=None, hour=None,
+    def time_delta_timestamp(self, days=None, hour=None,
                              minute=None, second=None):
+        startdate = self.local_to_utc_date_time()
         startdate = datetime.datetime.strptime(str(startdate), '%Y.%m.%d %H:%M:%S')
         if days:
             delta_dt = (startdate - datetime.timedelta(days)).replace(tzinfo=datetime.timezone.utc).timestamp()
@@ -36,8 +34,7 @@ class UTCTime:
 
         return delta_dt
 
-    @staticmethod
-    def days_between(created_at: str):
+    def days_between(self,created_at: str):
         date_format = "%Y-%m-%d %H:%M:%S.%f"
         created_at_datetime_class = datetime.datetime.strptime(created_at, date_format)
         now = datetime.datetime.strptime(datetime.datetime.now(timezone.utc).strftime(date_format), date_format)
