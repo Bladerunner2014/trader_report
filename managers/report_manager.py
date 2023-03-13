@@ -89,8 +89,6 @@ class Report:
             res.set_response({"message": ErrorMessage.EXCHANGE_ERROR_LOGS, "response": wallet_response})
             return res
 
-
-
     # TODO: weekly_report_pnl, total_weekly_report_pnl
     def generate_weekly_pnl_report(self):
         res = ResponseHandler()
@@ -174,7 +172,8 @@ class Report:
         pnl_cumulative_chart = self.cumulative(cumulative_pnl)
         res.set_status_code(StatusCode.SUCCESS)
         res.set_response(
-            {"weekly_report_pnl": weekly_pnl, "total_weekly_report_pnl": total_weekly_pnl, "daily_roi": daily_roi, "cumulative_roi": roi_cumulative_chart, "cumulative_pnl": pnl_cumulative_chart})
+            {"weekly_report_pnl": weekly_pnl, "total_weekly_report_pnl": total_weekly_pnl, "daily_roi": daily_roi,
+             "cumulative_roi": roi_cumulative_chart, "cumulative_pnl": pnl_cumulative_chart})
 
         return res
 
@@ -355,7 +354,8 @@ class Report:
             if response_status_code == StatusCode.SUCCESS and active_order[0]["ret_code"] == 0:
                 if active_order[0]["result"]['data'] is not None:
                     for order in active_order[0]["result"]['data']:
-                        if order["order_id"] in order_id_in_mongo_db:
+                        # order["order_id"] in order_id_in_mongo_db
+                        if order["order_status"] in ["Filled", "New", "PartiallyFilled"]:
                             final_resonse.append(
                                 {"status": order["order_status"], "side": order["side"], "symbol": order["symbol"],
                                  "created_time": order["created_time"], "updated_at": order["updated_time"],
@@ -364,6 +364,36 @@ class Report:
 
         self.common_member(self.active_order_exchange, order_id_in_mongo_db)
         res.set_response(final_resonse)
+        res.set_status_code(StatusCode.SUCCESS)
+        return res
+
+    def position(self):
+        res = ResponseHandler()
+        p_list = []
+
+        self.trader, status = self.trader_info(self.trader_id)
+        if status == StatusCode.NOT_FOUND:
+            res.set_status_code(status)
+            res.set_response(self.trader)
+            return res
+        self.secret_key = self.trader['secret_key']
+        self.api_key = self.trader['api_key']
+        request_json = self.request_handler.create_json_from_args(key=self.api_key, secret=self.secret_key,
+                                                                  exchange=self.exchange)
+        position_list, response_status_code = self.request_handler.send_post_request(
+            base_url=self.config["EXCHANGE_BASE_URL"],
+            port=self.config["EXCHANGE_PORT"],
+            end_point=self.config["EXCHANGE_POST_POSITION_LIST_URL"],
+            timeout=self.config["EXCHANGE_TIMEOUT"],
+            error_log_dict=ErrorMessage.EXCHANGE_ERROR_LOGS,
+            body=request_json)
+
+        if response_status_code == StatusCode.SUCCESS and position_list[0]["ret_code"] == 0:
+            if position_list[0]["result"] is not None:
+                for position in position_list[0]["result"]:
+                    p_list.append(position["data"])
+
+        res.set_response(p_list)
         res.set_status_code(StatusCode.SUCCESS)
         return res
 

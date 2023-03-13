@@ -46,6 +46,16 @@ def active_order(user_id):
 
     return res.generate_response()
 
+@v1_blueprint.route("/position/<string:user_id>", methods=["GET"])
+def position(user_id):
+    if user_id is None:
+        logger.error(ErrorMessage.BAD_REQUEST)
+        return ErrorMessage.BAD_REQUEST, StatusCode.BAD_REQUEST
+    rep = Report(user_id)
+    res = rep.position()
+
+    return res.generate_response()
+
 
 
 
