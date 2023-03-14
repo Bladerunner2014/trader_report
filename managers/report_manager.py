@@ -391,7 +391,8 @@ class Report:
         if response_status_code == StatusCode.SUCCESS and position_list[0]["ret_code"] == 0:
             if position_list[0]["result"] is not None:
                 for position in position_list[0]["result"]:
-                    p_list.append(position["data"])
+                    if position["data"]["size"]!=0:
+                        p_list.append(position["data"])
 
         res.set_response(p_list)
         res.set_status_code(StatusCode.SUCCESS)
