@@ -31,17 +31,19 @@ class Report:
         self.wallet_ballance = None
         self.equity = None
         self.dao = TraderDao(self.config["DB_COLLECTION_NAME"])
+        self.secret_key = None
+        self.api_key = None
 
     # TODO: daily_total_asset, asset_per_coin, total_assets
 
     def asset_report(self):
         res = ResponseHandler()
-
-        self.trader, status = self.trader_info(self.trader_id)
-        if status == StatusCode.NOT_FOUND:
-            res.set_status_code(status)
-            res.set_response(self.trader)
-            return res
+        if self.secret_key is None:
+            self.trader, status = self.trader_info(self.trader_id)
+            if status == StatusCode.NOT_FOUND:
+                res.set_status_code(status)
+                res.set_response(self.trader)
+                return res
         self.secret_key = self.trader['secret_key']
         self.api_key = self.trader['api_key']
 
@@ -93,12 +95,12 @@ class Report:
     def generate_weekly_pnl_report(self):
         res = ResponseHandler()
 
-        self.trader, status = self.trader_info(self.trader_id)
-
-        if status == StatusCode.NOT_FOUND:
-            res.set_status_code(status)
-            res.set_response(self.trader)
-            return res
+        if self.secret_key is None:
+            self.trader, status = self.trader_info(self.trader_id)
+            if status == StatusCode.NOT_FOUND:
+                res.set_status_code(status)
+                res.set_response(self.trader)
+                return res
         self.secret_key = self.trader['secret_key']
         self.api_key = self.trader['api_key']
         self.asset_report()
@@ -206,11 +208,12 @@ class Report:
     def seven_day_pnl_ratio_roi(self):
         res = ResponseHandler()
 
-        self.trader, status = self.trader_info(self.trader_id)
-        if status == StatusCode.NOT_FOUND:
-            res.set_status_code(status)
-            res.set_response(self.trader)
-            return res
+        if self.secret_key is None:
+            self.trader, status = self.trader_info(self.trader_id)
+            if status == StatusCode.NOT_FOUND:
+                res.set_status_code(status)
+                res.set_response(self.trader)
+                return res
         self.secret_key = self.trader['secret_key']
         self.api_key = self.trader['api_key']
         trading_days = self.utctime.days_between(self.trader["created_at"])
@@ -314,11 +317,12 @@ class Report:
     def active_order(self):
         res = ResponseHandler()
 
-        self.trader, status = self.trader_info(self.trader_id)
-        if status == StatusCode.NOT_FOUND:
-            res.set_status_code(status)
-            res.set_response(self.trader)
-            return res
+        if self.secret_key is None:
+            self.trader, status = self.trader_info(self.trader_id)
+            if status == StatusCode.NOT_FOUND:
+                res.set_status_code(status)
+                res.set_response(self.trader)
+                return res
         self.secret_key = self.trader['secret_key']
         self.api_key = self.trader['api_key']
         db_query = {"trader_info": 4, "action": "open_position"}
@@ -371,11 +375,12 @@ class Report:
         res = ResponseHandler()
         p_list = []
 
-        self.trader, status = self.trader_info(self.trader_id)
-        if status == StatusCode.NOT_FOUND:
-            res.set_status_code(status)
-            res.set_response(self.trader)
-            return res
+        if self.secret_key is None:
+            self.trader, status = self.trader_info(self.trader_id)
+            if status == StatusCode.NOT_FOUND:
+                res.set_status_code(status)
+                res.set_response(self.trader)
+                return res
         self.secret_key = self.trader['secret_key']
         self.api_key = self.trader['api_key']
         request_json = self.request_handler.create_json_from_args(key=self.api_key, secret=self.secret_key,
