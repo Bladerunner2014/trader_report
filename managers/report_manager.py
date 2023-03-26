@@ -333,7 +333,7 @@ class Report:
         starttime = self.utctime.time_delta_timestamp(days=7)
         self.active_order_exchange = []
         order_id_in_mongo_db = []
-        final_resonse = []
+        final_response = []
         for order in orders_in_mongo:
             try:
                 order_id_in_mongo_db.append(order["result"][0]["result"]["order_id"])
@@ -360,14 +360,15 @@ class Report:
                     for order in active_order[0]["result"]['data']:
                         # order["order_id"] in order_id_in_mongo_db
                         if order["order_status"] in ["Filled", "New", "PartiallyFilled"]:
-                            final_resonse.append(
-                                {"status": order["order_status"], "side": order["side"], "symbol": order["symbol"],
-                                 "created_time": order["created_time"], "updated_at": order["updated_time"],
-                                 "take_profit": order["take_profit"]})
+                            #final_resonse.append(
+                            #    {"status": order["order_status"], "side": order["side"], "symbol": order["symbol"],
+                            #     "created_time": order["created_time"], "updated_at": order["updated_time"],
+                            #     "take_profit": order["take_profit"]})
+                            final_response.append(order)
                         self.active_order_exchange.append(order["order_id"])
 
         self.common_member(self.active_order_exchange, order_id_in_mongo_db)
-        res.set_response(final_resonse)
+        res.set_response(final_response)
         res.set_status_code(StatusCode.SUCCESS)
         return res
 
