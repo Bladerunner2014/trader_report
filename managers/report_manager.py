@@ -165,10 +165,7 @@ class Report:
             self.seven_day_pnl_report.append(self.total_pnl)
             weekly_pnl.update({f"{day} days ago": self.total_pnl})
         total_weekly_pnl = sum(weekly_pnl.values())
-        # print(self.closed_pnl_list)
-        print(self.daily_closed_pnl_list)
-        print(order_id_in_mongo_db)
-        print(self.order_id_in_exchange)
+
         self.common_member(self.order_id_in_exchange, order_id_in_mongo_db)
         roi_cumulative_chart = self.cumulative(cumulative_roi)
         pnl_cumulative_chart = self.cumulative(cumulative_pnl)
@@ -238,9 +235,19 @@ class Report:
                     lose_trade += 1
             if total_loss == 0:
                 pnl_ratio = 100
+
+                if total_profit == 0:
+                    pnl_ratio = 0
+
             else:
 
                 pnl_ratio = total_profit / negative * total_loss
+            if total_trades == 0:
+
+                self.win_rate = 0
+            else:
+                self.win_rate = (win_trade / total_trades)*100
+
             average_pnl = (total_loss + total_profit) / total_trades
 
             # Trader ROI
@@ -261,6 +268,7 @@ class Report:
 
             res.set_status_code(StatusCode.SUCCESS)
             res.set_response({"total_trades": total_trades, "win_trade": win_trade, "lose_trade": lose_trade,
+                              "win_rate": self.win_rate,
                               "pnl_ratio": pnl_ratio, "average_pnl": average_pnl, "trader_total_roi": trader_total_roi,
                               "trading_days": trading_days})
             return res
@@ -397,7 +405,7 @@ class Report:
         if response_status_code == StatusCode.SUCCESS and position_list[0]["ret_code"] == 0:
             if position_list[0]["result"] is not None:
                 for position in position_list[0]["result"]:
-                    if position["data"]["size"]!=0:
+                    if position["data"]["size"] != 0:
                         p_list.append(position["data"])
 
         res.set_response(p_list)
