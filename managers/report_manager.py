@@ -24,7 +24,6 @@ class Report:
         self.config = dotenv_values(".env")
         self.trader_id = trader_id
         self.logger = logging.getLogger(__name__)
-        self.trader_id = trader_id
         self.exchange = "Bybit"
         self.utctime = UTCTime()
         self.win_rate = None
@@ -103,13 +102,14 @@ class Report:
                 return res
         self.secret_key = self.trader['secret_key']
         self.api_key = self.trader['api_key']
+        self.id = self.trader['id']
         self.asset_report()
         cumulative_roi = []
         cumulative_pnl = []
         self.seven_day_pnl_report = []
         weekly_pnl = {}
         daily_roi = {}
-        db_query = {"trader_info": 4, "action": "open_position"}
+        db_query = {"trader_info": self.id, "action": "open_position"}
         orders_in_mongo = self.get_history_from_mongo(db_query)
         order_id_in_mongo_db = []
         for order in orders_in_mongo:
@@ -213,6 +213,8 @@ class Report:
                 return res
         self.secret_key = self.trader['secret_key']
         self.api_key = self.trader['api_key']
+        self.id = self.trader['id']
+
         trading_days = self.utctime.days_between(self.trader["created_at"])
 
         useless_response = self.generate_weekly_pnl_report()
@@ -246,7 +248,7 @@ class Report:
 
                 self.win_rate = 0
             else:
-                self.win_rate = (win_trade / total_trades)*100
+                self.win_rate = (win_trade / total_trades) * 100
 
             average_pnl = (total_loss + total_profit) / total_trades
 
@@ -333,7 +335,9 @@ class Report:
                 return res
         self.secret_key = self.trader['secret_key']
         self.api_key = self.trader['api_key']
-        db_query = {"trader_info": 4, "action": "open_position"}
+        self.id = self.trader['id']
+        db_query = {"trader_info": self.id, "action": "open_position"}
+        self.logger.info('trader id is {}'.format(self.id))
         orders_in_mongo = self.get_history_from_mongo(db_query)
         coins = [info["data"]["symbol"] for info in orders_in_mongo]
         coins = list(dict.fromkeys(coins))
@@ -428,7 +432,6 @@ class Report:
             self.logger.error(ErrorMessage.TRADER_ERROR)
             self.logger.error(error)
             raise Exception
-
         return response, response_status_code
 
     # TODO: INSTEAD OF TWO FOR LOOP, SEND QUERY REQUEST TO MONGO
