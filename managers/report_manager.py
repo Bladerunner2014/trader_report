@@ -354,31 +354,99 @@ class Report:
 
         for coin in coins:
             self.logger.info("prepare for new request to exchange")
-            request_json = self.request_handler.create_json_from_args(key=self.api_key, secret=self.secret_key,
-                                                                      order_status = "Filled",
-                                                                      exchange=self.exchange,
-                                                                      start_time=str(int(starttime)),
-                                                                      end_time=str(int(endtime)), symbol=coin)
-            self.logger.info("symbol {}".format(coin))
-            self.logger.info("request json {}".format(request_json))
-            active_order, response_status_code = self.request_handler.send_post_request(
-                base_url=self.config["EXCHANGE_BASE_URL"],
-                port=self.config["EXCHANGE_PORT"],
-                end_point=self.config["EXCHANGE_GET_ORDER"],
-                timeout=self.config["EXCHANGE_TIMEOUT"],
-                error_log_dict=ErrorMessage.EXCHANGE_ERROR_LOGS,
-                body=request_json)
-            if response_status_code == StatusCode.SUCCESS and active_order[0]["ret_code"] == 0:
-                if active_order[0]["result"]['data'] is not None:
-                    for order in active_order[0]["result"]['data']:
-                        # if order["order_id"] in order_id_in_mongo_db:
+            for page in range(5):
+                request_json = self.request_handler.create_json_from_args(key=self.api_key, secret=self.secret_key,
+                                                                          order_status="Filled",
+                                                                          exchange=self.exchange,
+                                                                          limit="50",
+                                                                          page=str(page),
+                                                                          start_time=str(int(starttime)),
+                                                                          end_time=str(int(endtime)), symbol=coin)
+                self.logger.info("symbol {}".format(coin))
+                self.logger.info("request json {}".format(request_json))
+                active_order, response_status_code = self.request_handler.send_post_request(
+                    base_url=self.config["EXCHANGE_BASE_URL"],
+                    port=self.config["EXCHANGE_PORT"],
+                    end_point=self.config["EXCHANGE_GET_ORDER"],
+                    timeout=self.config["EXCHANGE_TIMEOUT"],
+                    error_log_dict=ErrorMessage.EXCHANGE_ERROR_LOGS,
+                    body=request_json)
+                if response_status_code == StatusCode.SUCCESS and active_order[0]["ret_code"] == 0:
+                    if active_order[0]["result"]['data'] is not None:
+                        for order in active_order[0]["result"]['data']:
+                            # if order["order_id"] in order_id_in_mongo_db:
                             if order["order_status"] in ["Filled"]:
                                 final_resonse.append(order)
                             self.active_order_exchange.append(order["order_id"])
-
-        self.common_member(self.active_order_exchange, order_id_in_mongo_db)
-        res.set_response(final_resonse)
+        number_of_trades = {}
+        for coin in coins:
+            per_coin = (1 for k in final_resonse if k.get("symbol") == coin)
+            number_of_trades[coin] = sum(per_coin)
+        print(coins)
+        res.set_response(number_of_trades)
         res.set_status_code(StatusCode.SUCCESS)
+        return res
+
+    def pnl_report(self):
+        res = ResponseHandler()
+
+        if self.secret_key is None:
+            self.trader, status = self.trader_info(self.trader_id)
+            if status == StatusCode.NOT_FOUND:
+                res.set_status_code(status)
+                res.set_response(self.trader)
+                return res
+        self.secret_key = self.trader['secret_key']
+        self.api_key = self.trader['api_key']
+        self.id = self.trader['id']
+        self.asset_report()
+
+        pnl = []
+
+        db_query = {"trader_info": self.id, "action": "open_position"}
+        orders_in_mongo = self.get_history_from_mongo(db_query)
+        order_id_in_mongo_db = []
+        for order in orders_in_mongo:
+            try:
+                order_id_in_mongo_db.append(order["result"][0]["result"]["order_id"])
+            except (TypeError, KeyError):
+                continue
+
+        coins = [info["data"]["symbol"] for info in orders_in_mongo]
+        coins = list(dict.fromkeys(coins))
+
+        for day in range(0, 7):
+
+            endtime = self.utctime.time_delta_timestamp(days=day)
+            starttime = self.utctime.time_delta_timestamp(days=day + 1)
+            self.logger.info("day {}".format(day))
+            self.total_pnl = 0
+            self.order_pnl = []
+            for coin in coins:
+                self.logger.info("prepare for new request to exchange")
+                request_json = self.request_handler.create_json_from_args(key=self.api_key, secret=self.secret_key,
+                                                                          exchange=self.exchange,
+                                                                          start_time=str(int(starttime)),
+                                                                          end_time=str(int(endtime)), symbol=coin)
+                self.logger.info("symbol {}".format(coin))
+                self.logger.info("request json {}".format(request_json))
+                pnl_response, response_status_code = self.request_handler.send_post_request(
+                    base_url=self.config["EXCHANGE_BASE_URL"],
+                    port=self.config["EXCHANGE_PORT"],
+                    end_point=self.config["EXCHANGE_POST_PNL_URL"],
+                    timeout=self.config["EXCHANGE_TIMEOUT"],
+                    error_log_dict=ErrorMessage.EXCHANGE_ERROR_LOGS,
+                    body=request_json)
+                self.logger.info("request sent")
+                if response_status_code == StatusCode.SUCCESS and pnl_response[0]["ret_code"] == 0:
+                    if pnl_response[0]["result"]['data'] is not None:
+                        print(pnl_response[0]["result"]['data'])
+                        pnl.append(pnl_response[0]["result"]['data'][0])
+
+        res.set_status_code(StatusCode.SUCCESS)
+        res.set_response(
+            pnl)
+
         return res
 
     def position(self):
@@ -462,9 +530,9 @@ class Report:
                 if active_order[0]["result"]['data'] is not None:
                     for order in active_order[0]["result"]['data']:
                         # if order["order_id"] in order_id_in_mongo_db:
-                            if order["order_status"] in ["New"]:
-                                final_resonse.append(order)
-                            self.active_order_exchange.append(order["order_id"])
+                        if order["order_status"] in ["New"]:
+                            final_resonse.append(order)
+                        self.active_order_exchange.append(order["order_id"])
 
         self.common_member(self.active_order_exchange, order_id_in_mongo_db)
         res.set_response(final_resonse)
