@@ -68,6 +68,16 @@ def roi(user_id):
     res = rep.seven_day_pnl_ratio_roi()
     return res.generate_response()
 
+@v1_blueprint.route("/active-order-new/<string:user_id>", methods=["GET"])
+def active_order_new(user_id):
+    if user_id is None:
+        logger.error(ErrorMessage.BAD_REQUEST)
+        return ErrorMessage.BAD_REQUEST, StatusCode.BAD_REQUEST
+    rep = Report(user_id)
+    res = rep.active_order_new()
+
+    return res.generate_response()
+
 
 swagger.run_swagger(app)
 log.setup_logger()
