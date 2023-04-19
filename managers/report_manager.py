@@ -376,11 +376,11 @@ class Report:
                         for order in active_order[0]["result"]['data']:
                             # if order["order_id"] in order_id_in_mongo_db:
                             if order["order_status"] in ["Filled"]:
-                                final_resonse.append(order)
+                                final_response.append(order)
                             self.active_order_exchange.append(order["order_id"])
         number_of_trades = {}
         for coin in coins:
-            per_coin = (1 for k in final_resonse if k.get("symbol") == coin)
+            per_coin = (1 for k in final_response if k.get("symbol") == coin)
             number_of_trades[coin] = sum(per_coin)
         print(coins)
         res.set_response(number_of_trades)
