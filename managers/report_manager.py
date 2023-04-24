@@ -123,7 +123,7 @@ class Report:
         self.closed_pnl_list = []
         self.order_id_in_exchange = []
         self.daily_closed_pnl_list = {}
-
+        ttpnl = []
         for day in range(0, 7):
             daily_pnl_list = []
 
@@ -440,8 +440,8 @@ class Report:
                 self.logger.info("request sent")
                 if response_status_code == StatusCode.SUCCESS and pnl_response[0]["ret_code"] == 0:
                     if pnl_response[0]["result"]['data'] is not None:
-                        print(pnl_response[0]["result"]['data'])
-                        pnl.append(pnl_response[0]["result"]['data'][0])
+                        for closed in pnl_response[0]["result"]['data']:
+                            pnl.append(closed)
 
         res.set_status_code(StatusCode.SUCCESS)
         res.set_response(
