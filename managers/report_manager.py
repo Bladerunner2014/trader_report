@@ -1,6 +1,6 @@
 import logging
 from collections import Counter
-
+from threading import Thread
 from dotenv import dotenv_values
 from http_handler.response_handler import ResponseHandler
 from constants.error_message import ErrorMessage
@@ -13,6 +13,13 @@ from constants.info_message import InfoMessage
 
 class Report:
     def __init__(self, trader_id: str):
+        self.final_response = []
+        self.pnl_new = []
+        self.pnl = []
+        self.pnl_per_day = None
+        self.t_weekly_pnl = None
+        self.dday = {}
+        self.i = 0
         self.daily_closed_pnl_list = None
         self.active_order_exchange = None
         self.order_id_in_exchange = None
@@ -32,6 +39,7 @@ class Report:
         self.dao = TraderDao(self.config["DB_COLLECTION_NAME"])
         self.secret_key = None
         self.api_key = None
+        self.thread_response = []
 
     # TODO: daily_total_asset, asset_per_coin, total_assets
 
@@ -92,8 +100,14 @@ class Report:
 
     # TODO: weekly_report_pnl, total_weekly_report_pnl
     def generate_weekly_pnl_report(self):
-        res = ResponseHandler()
 
+        res = ResponseHandler()
+        coin, st = self.request_handler.send_get_request(
+            base_url=self.config["COIN_BASE"],
+            port=self.config["COIN_PORT"],
+            end_point=self.config["COIN_URL"],
+            timeout=self.config["EXCHANGE_TIMEOUT"],
+            error_log_dict=ErrorMessage.EXCHANGE_ERROR_LOGS)
         if self.secret_key is None:
             self.trader, status = self.trader_info(self.trader_id)
             if status == StatusCode.NOT_FOUND:
@@ -107,26 +121,18 @@ class Report:
         cumulative_roi = []
         cumulative_pnl = []
         self.seven_day_pnl_report = []
-        weekly_pnl = {}
         daily_roi = {}
-        db_query = {"trader_info": self.id, "action": "open_position"}
-        orders_in_mongo = self.get_history_from_mongo(db_query)
-        order_id_in_mongo_db = []
-        for order in orders_in_mongo:
-            try:
-                order_id_in_mongo_db.append(order["result"][0]["result"]["order_id"])
-            except (TypeError, KeyError):
-                continue
 
-        coins = [info["data"]["symbol"] for info in orders_in_mongo]
+        coins = [info["coin_symbol"] for info in coin]
         coins = list(dict.fromkeys(coins))
         self.closed_pnl_list = []
         self.order_id_in_exchange = []
         self.daily_closed_pnl_list = {}
-        ttpnl = []
-        for day in range(0, 7):
-            daily_pnl_list = []
+        threads = []
+        req_per_day = []
 
+        for day in range(0, 7):
+            self.dday.update({day: []})
             endtime = self.utctime.time_delta_timestamp(days=day)
             starttime = self.utctime.time_delta_timestamp(days=day + 1)
             self.logger.info("day {}".format(day))
@@ -137,44 +143,71 @@ class Report:
                 request_json = self.request_handler.create_json_from_args(key=self.api_key, secret=self.secret_key,
                                                                           exchange=self.exchange,
                                                                           start_time=str(int(starttime)),
-                                                                          end_time=str(int(endtime)), symbol=coin)
-                self.logger.info("symbol {}".format(coin))
-                self.logger.info("request json {}".format(request_json))
-                pnl_response, response_status_code = self.request_handler.send_post_request(
-                    base_url=self.config["EXCHANGE_BASE_URL"],
-                    port=self.config["EXCHANGE_PORT"],
-                    end_point=self.config["EXCHANGE_POST_PNL_URL"],
-                    timeout=self.config["EXCHANGE_TIMEOUT"],
-                    error_log_dict=ErrorMessage.EXCHANGE_ERROR_LOGS,
-                    body=request_json)
-                self.logger.info("request sent")
-                if response_status_code == StatusCode.SUCCESS and pnl_response[0]["ret_code"] == 0:
-                    if pnl_response[0]["result"]['data'] is not None:
-                        for closed in pnl_response[0]["result"]['data']:
-                            self.order_id_in_exchange.append(closed["order_id"])
-                            # if closed["order_id"] in order_id_in_mongo_db:
-                            self.total_pnl += float(closed["closed_pnl"])
-                            self.closed_pnl_list.append(closed)
-                            daily_pnl_list.append(closed)
-                self.daily_closed_pnl_list.update({"{} day ago".format(day): daily_pnl_list})
-            roi = self.daily_roi_cumulative(daily_pnl_list)
-            daily_roi.update({f"{day} days ago": roi})
-            cumulative_roi.insert(0, roi)
-            cumulative_pnl.insert(0, self.total_pnl)
+                                                                          end_time=str(int(endtime)), symbol=coin,
+                                                                          day=day)
 
-            self.seven_day_pnl_report.append(self.total_pnl)
-            weekly_pnl.update({f"{day} days ago": self.total_pnl})
-        total_weekly_pnl = sum(weekly_pnl.values())
+                req_per_day.append(request_json)
 
-        self.common_member(self.order_id_in_exchange, order_id_in_mongo_db)
+        for req in req_per_day:
+            thread = Thread(target=self.send_req, args=(req,))
+            threads.append(thread)
+            thread.start()
+
+        for thread in threads:
+            thread.join()
+        self.t_weekly_pnl = 0
+        self.pnl_per_day = {}
+        for key, value in self.dday.items():
+            d_pnl_list = []
+
+            if self.dday[key]:
+                t_day_pnl = 0
+                for p in self.dday[key]:
+                    t_day_pnl += p["closed_pnl"]
+                    self.t_weekly_pnl += p["closed_pnl"]
+                    self.closed_pnl_list.append(p)
+                    d_pnl_list.append(p)
+                roi = self.daily_roi_cumulative(d_pnl_list)
+                daily_roi.update({f"{key} days ago": roi})
+                cumulative_roi.insert(0, roi)
+                cumulative_pnl.insert(0, t_day_pnl)
+
+                self.pnl_per_day.update({"{} days ago".format(key): t_day_pnl})
+            else:
+                self.pnl_per_day.update({"{} days ago".format(key): 0})
+                daily_roi.update({f"{key} days ago": 0})
+                roi = self.daily_roi_cumulative(d_pnl_list)
+                daily_roi.update({f"{key} days ago": roi})
+                cumulative_roi.insert(0, roi)
+                cumulative_pnl.insert(0, 0)
+
         roi_cumulative_chart = self.cumulative(cumulative_roi)
         pnl_cumulative_chart = self.cumulative(cumulative_pnl)
         res.set_status_code(StatusCode.SUCCESS)
         res.set_response(
-            {"weekly_report_pnl": weekly_pnl, "total_weekly_report_pnl": total_weekly_pnl, "daily_roi": daily_roi,
-             "cumulative_roi": roi_cumulative_chart, "cumulative_pnl": pnl_cumulative_chart})
+            {
+                "weekly_report_pnl": self.pnl_per_day, "total_weekly_report_pnl": self.t_weekly_pnl,
+                "daily_roi": daily_roi,
+                "cumulative_roi": roi_cumulative_chart, "cumulative_pnl": pnl_cumulative_chart})
 
         return res
+
+    def send_req(self, req):
+
+        pnl_response, response_status_code = self.request_handler.send_post_request(
+            base_url=self.config["EXCHANGE_BASE_URL"],
+            port=self.config["EXCHANGE_PORT"],
+            end_point=self.config["EXCHANGE_POST_PNL_URL"],
+            timeout=self.config["EXCHANGE_TIMEOUT"],
+            error_log_dict=ErrorMessage.EXCHANGE_ERROR_LOGS,
+            body=req)
+        if response_status_code == StatusCode.SUCCESS and pnl_response[0]["ret_code"] == 0:
+            if pnl_response[0]["result"]['data'] is not None:
+                for closed in pnl_response[0]["result"]['data']:
+                    self.dday[req["day"]].append(closed)
+                    self.pnl.append(closed)
+
+        pass
 
     @staticmethod
     def cumulative(sorted_ls: list):
@@ -220,10 +253,8 @@ class Report:
         useless_response = self.generate_weekly_pnl_report()
         if len(self.closed_pnl_list) > 0:
             negative = float(-1)
-            pnl_for_ever = self.seven_day_pnl_report
             total_profit = float(0)
             total_loss = float(0)
-            # total_trades = len(self.order_pnl)
             total_trades = len(self.closed_pnl_list)
             win_trade = int(0)
             lose_trade = int(0)
@@ -318,10 +349,6 @@ class Report:
             self.logger.error(error)
             raise Exception
 
-        # list_of_orders = []
-        # for item in result:
-        #     list_of_orders.append(item["data"])
-
         return result
 
     def active_order(self):
@@ -382,7 +409,6 @@ class Report:
         for coin in coins:
             per_coin = (1 for k in final_response if k.get("symbol") == coin)
             number_of_trades[coin] = sum(per_coin)
-        print(coins)
         res.set_response(number_of_trades)
         res.set_status_code(StatusCode.SUCCESS)
         return res
@@ -390,6 +416,12 @@ class Report:
     def pnl_report(self):
         res = ResponseHandler()
 
+        coin, st = self.request_handler.send_get_request(
+            base_url=self.config["COIN_BASE"],
+            port=self.config["COIN_PORT"],
+            end_point=self.config["COIN_URL"],
+            timeout=self.config["EXCHANGE_TIMEOUT"],
+            error_log_dict=ErrorMessage.EXCHANGE_ERROR_LOGS)
         if self.secret_key is None:
             self.trader, status = self.trader_info(self.trader_id)
             if status == StatusCode.NOT_FOUND:
@@ -400,23 +432,12 @@ class Report:
         self.api_key = self.trader['api_key']
         self.id = self.trader['id']
         self.asset_report()
-
-        pnl = []
-
-        db_query = {"trader_info": self.id, "action": "open_position"}
-        orders_in_mongo = self.get_history_from_mongo(db_query)
-        order_id_in_mongo_db = []
-        for order in orders_in_mongo:
-            try:
-                order_id_in_mongo_db.append(order["result"][0]["result"]["order_id"])
-            except (TypeError, KeyError):
-                continue
-
-        coins = [info["data"]["symbol"] for info in orders_in_mongo]
+        coins = [info["coin_symbol"] for info in coin]
         coins = list(dict.fromkeys(coins))
-
+        threads = []
+        req_per_day = []
         for day in range(0, 7):
-
+            self.dday.update({day: []})
             endtime = self.utctime.time_delta_timestamp(days=day)
             starttime = self.utctime.time_delta_timestamp(days=day + 1)
             self.logger.info("day {}".format(day))
@@ -427,25 +448,22 @@ class Report:
                 request_json = self.request_handler.create_json_from_args(key=self.api_key, secret=self.secret_key,
                                                                           exchange=self.exchange,
                                                                           start_time=str(int(starttime)),
-                                                                          end_time=str(int(endtime)), symbol=coin)
-                self.logger.info("symbol {}".format(coin))
-                self.logger.info("request json {}".format(request_json))
-                pnl_response, response_status_code = self.request_handler.send_post_request(
-                    base_url=self.config["EXCHANGE_BASE_URL"],
-                    port=self.config["EXCHANGE_PORT"],
-                    end_point=self.config["EXCHANGE_POST_PNL_URL"],
-                    timeout=self.config["EXCHANGE_TIMEOUT"],
-                    error_log_dict=ErrorMessage.EXCHANGE_ERROR_LOGS,
-                    body=request_json)
-                self.logger.info("request sent")
-                if response_status_code == StatusCode.SUCCESS and pnl_response[0]["ret_code"] == 0:
-                    if pnl_response[0]["result"]['data'] is not None:
-                        for closed in pnl_response[0]["result"]['data']:
-                            pnl.append(closed)
+                                                                          end_time=str(int(endtime)), symbol=coin,
+                                                                          day=day)
+
+                req_per_day.append(request_json)
+
+        for req in req_per_day:
+            thread = Thread(target=self.send_req, args=(req,))
+            threads.append(thread)
+            thread.start()
+
+        for thread in threads:
+            thread.join()
 
         res.set_status_code(StatusCode.SUCCESS)
         res.set_response(
-            pnl)
+            self.pnl)
 
         return res
 
@@ -586,3 +604,6 @@ class Report:
                 week_pnl.append(pnl)
 
         return week_pnl
+
+
+
