@@ -15,7 +15,6 @@ logger = logging.getLogger(__name__)
 
 @v1_blueprint.route("/asset/<string:user_id>", methods=["GET"])
 def asset(user_id):
-
     if user_id is None:
         logger.error(ErrorMessage.BAD_REQUEST)
         return ErrorMessage.BAD_REQUEST, StatusCode.BAD_REQUEST
@@ -46,6 +45,7 @@ def active_order(user_id):
 
     return res.generate_response()
 
+
 @v1_blueprint.route("/position/<string:user_id>", methods=["GET"])
 def position(user_id):
     if user_id is None:
@@ -57,8 +57,6 @@ def position(user_id):
     return res.generate_response()
 
 
-
-
 @v1_blueprint.route("/roi/<string:user_id>", methods=["GET"])
 def roi(user_id):
     if user_id is None:
@@ -67,6 +65,7 @@ def roi(user_id):
     rep = Report(user_id)
     res = rep.seven_day_pnl_ratio_roi()
     return res.generate_response()
+
 
 @v1_blueprint.route("/active-order-new/<string:user_id>", methods=["GET"])
 def active_order_new(user_id):
@@ -78,6 +77,7 @@ def active_order_new(user_id):
 
     return res.generate_response()
 
+
 @v1_blueprint.route("/pnl-report/<string:user_id>", methods=["GET"])
 def pnl_report(user_id):
     if user_id is None:
@@ -87,6 +87,8 @@ def pnl_report(user_id):
     res = rep.pnl_report()
 
     return res.generate_response()
+
+
 swagger.run_swagger(app)
 log.setup_logger()
 
