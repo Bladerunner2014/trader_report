@@ -129,41 +129,47 @@ class Report:
         self.order_id_in_exchange = []
         self.daily_closed_pnl_list = {}
         threads = []
-        req_per_day = []
+        req_total = []
 
-        for day in range(0, 7):
-            self.dday.update({day: []})
-            endtime = self.utctime.time_delta_timestamp(days=day)
-            starttime = self.utctime.time_delta_timestamp(days=day + 1)
-            self.logger.info("day {}".format(day))
-            self.total_pnl = 0
-            self.order_pnl = []
-            for coin in coins:
-                self.logger.info("prepare for new request to exchange")
-                request_json = self.request_handler.create_json_from_args(key=self.api_key, secret=self.secret_key,
-                                                                          exchange=self.exchange,
-                                                                          start_time=str(int(starttime)),
-                                                                          end_time=str(int(endtime)), symbol=coin,
-                                                                          day=day)
+        # self.dday.update({day: []})
+        endtime = self.utctime.time_delta_timestamp(days=0)
+        starttime = self.utctime.time_delta_timestamp(days=7)
+        # self.logger.info("day {}".format(day))
+        self.total_pnl = 0
+        self.order_pnl = []
+        for coin in coins:
+            self.logger.info("prepare for new request to exchange")
+            request_json = self.request_handler.create_json_from_args(key=self.api_key, secret=self.secret_key,
+                                                                      exchange=self.exchange,
+                                                                      start_time=str(int(starttime)),
+                                                                      end_time=str(int(endtime)), symbol=coin,
+                                                                      )
 
-                req_per_day.append(request_json)
-        j = 0
-        for i in range(1, 67):
-            thread = Thread(target=self.send_req, args=(req_per_day[j:i * 7],))
-            j = i*7
+            req_total.append(request_json)
+        for req in req_total:
+            thread = Thread(target=self.send_req, args=(req,))
             threads.append(thread)
             thread.start()
 
         for thread in threads:
             thread.join()
+        self.pnl_pd = {}
+        for day in range(0, 7):
+            self.pnl_pd["{} days ago".format(day)] = []
+            endtime = self.utctime.time_delta_timestamp(days=day)
+            starttime = self.utctime.time_delta_timestamp(days=day + 1)
+            for pnl in self.pnl:
+                if starttime <= pnl["created_at"] <= endtime:
+                    self.pnl_pd["{} days ago".format(day)].append(pnl)
+
         self.t_weekly_pnl = 0
         self.pnl_per_day = {}
-        for key, value in self.dday.items():
+        for key, value in self.pnl_pd.items():
             d_pnl_list = []
 
-            if self.dday[key]:
+            if self.pnl_pd[key]:
                 t_day_pnl = 0
-                for p in self.dday[key]:
+                for p in self.pnl_pd[key]:
                     t_day_pnl += p["closed_pnl"]
                     self.t_weekly_pnl += p["closed_pnl"]
                     self.closed_pnl_list.append(p)
@@ -186,28 +192,26 @@ class Report:
         pnl_cumulative_chart = self.cumulative(cumulative_pnl)
         res.set_status_code(StatusCode.SUCCESS)
         res.set_response(
-            {"fdf": self.i,
-             "weekly_report_pnl": self.pnl_per_day, "total_weekly_report_pnl": self.t_weekly_pnl,
-             "daily_roi": daily_roi,
-             "cumulative_roi": roi_cumulative_chart, "cumulative_pnl": pnl_cumulative_chart})
+            {
+                "weekly_report_pnl": self.pnl_per_day, "total_weekly_report_pnl": self.t_weekly_pnl,
+                "daily_roi": daily_roi,
+                "cumulative_roi": roi_cumulative_chart, "cumulative_pnl": pnl_cumulative_chart})
 
         return res
 
-    def send_req(self, req):
+    def send_req(self, request):
         self.i += 1
-        for request in req:
-            pnl_response, response_status_code = self.request_handler.send_post_request(
-                base_url=self.config["EXCHANGE_BASE_URL"],
-                port=self.config["EXCHANGE_PORT"],
-                end_point=self.config["EXCHANGE_POST_PNL_URL"],
-                timeout=self.config["EXCHANGE_TIMEOUT"],
-                error_log_dict=ErrorMessage.EXCHANGE_ERROR_LOGS,
-                body=request)
-            if response_status_code == StatusCode.SUCCESS and pnl_response[0]["ret_code"] == 0:
-                if pnl_response[0]["result"]['data'] is not None:
-                    for closed in pnl_response[0]["result"]['data']:
-                        self.dday[request["day"]].append(closed)
-                        self.pnl.append(closed)
+        pnl_response, response_status_code = self.request_handler.send_post_request(
+            base_url=self.config["EXCHANGE_BASE_URL"],
+            port=self.config["EXCHANGE_PORT"],
+            end_point=self.config["EXCHANGE_POST_PNL_URL"],
+            timeout=self.config["EXCHANGE_TIMEOUT"],
+            error_log_dict=ErrorMessage.EXCHANGE_ERROR_LOGS,
+            body=request)
+        if response_status_code == StatusCode.SUCCESS and pnl_response[0]["ret_code"] == 0:
+            if pnl_response[0]["result"]['data'] is not None:
+                for closed in pnl_response[0]["result"]['data']:
+                    self.pnl.append(closed)
 
         pass
 
@@ -417,57 +421,10 @@ class Report:
 
     def pnl_report(self):
         res = ResponseHandler()
-
-        coin, st = self.request_handler.send_get_request(
-            base_url=self.config["COIN_BASE"],
-            port=self.config["COIN_PORT"],
-            end_point=self.config["COIN_URL"],
-            timeout=self.config["EXCHANGE_TIMEOUT"],
-            error_log_dict=ErrorMessage.EXCHANGE_ERROR_LOGS)
-        if self.secret_key is None:
-            self.trader, status = self.trader_info(self.trader_id)
-            if status == StatusCode.NOT_FOUND:
-                res.set_status_code(status)
-                res.set_response(self.trader)
-                return res
-        self.secret_key = self.trader['secret_key']
-        self.api_key = self.trader['api_key']
-        self.id = self.trader['id']
-        self.asset_report()
-        coins = [info["coin_symbol"] for info in coin]
-        coins = list(dict.fromkeys(coins))
-        threads = []
-        req_per_day = []
-
-        for day in range(0, 7):
-            self.dday.update({day: []})
-            endtime = self.utctime.time_delta_timestamp(days=day)
-            starttime = self.utctime.time_delta_timestamp(days=day + 1)
-            self.logger.info("day {}".format(day))
-            self.total_pnl = 0
-            self.order_pnl = []
-            for coin in coins:
-                self.logger.info("prepare for new request to exchange")
-                request_json = self.request_handler.create_json_from_args(key=self.api_key, secret=self.secret_key,
-                                                                          exchange=self.exchange,
-                                                                          start_time=str(int(starttime)),
-                                                                          end_time=str(int(endtime)), symbol=coin,
-                                                                          day=day)
-
-                req_per_day.append(request_json)
-        j = 0
-        for i in range(1, 67):
-            thread = Thread(target=self.send_req, args=(req_per_day[j:i * 7],))
-            j = i * 7
-            threads.append(thread)
-            thread.start()
-
-        for thread in threads:
-            thread.join()
-
+        # set_pnl_report
+        self.generate_weekly_pnl_report()
+        res.set_response(self.pnl)
         res.set_status_code(StatusCode.SUCCESS)
-        res.set_response(
-            self.pnl)
 
         return res
 
