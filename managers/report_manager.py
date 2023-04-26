@@ -147,9 +147,10 @@ class Report:
                                                                           day=day)
 
                 req_per_day.append(request_json)
-
-        for req in req_per_day:
-            thread = Thread(target=self.send_req, args=(req,))
+        j = 0
+        for i in range(1, 67):
+            thread = Thread(target=self.send_req, args=(req_per_day[j:i * 7],))
+            j = i*7
             threads.append(thread)
             thread.start()
 
@@ -185,27 +186,28 @@ class Report:
         pnl_cumulative_chart = self.cumulative(cumulative_pnl)
         res.set_status_code(StatusCode.SUCCESS)
         res.set_response(
-            {
-                "weekly_report_pnl": self.pnl_per_day, "total_weekly_report_pnl": self.t_weekly_pnl,
-                "daily_roi": daily_roi,
-                "cumulative_roi": roi_cumulative_chart, "cumulative_pnl": pnl_cumulative_chart})
+            {"fdf": self.i,
+             "weekly_report_pnl": self.pnl_per_day, "total_weekly_report_pnl": self.t_weekly_pnl,
+             "daily_roi": daily_roi,
+             "cumulative_roi": roi_cumulative_chart, "cumulative_pnl": pnl_cumulative_chart})
 
         return res
 
     def send_req(self, req):
-
-        pnl_response, response_status_code = self.request_handler.send_post_request(
-            base_url=self.config["EXCHANGE_BASE_URL"],
-            port=self.config["EXCHANGE_PORT"],
-            end_point=self.config["EXCHANGE_POST_PNL_URL"],
-            timeout=self.config["EXCHANGE_TIMEOUT"],
-            error_log_dict=ErrorMessage.EXCHANGE_ERROR_LOGS,
-            body=req)
-        if response_status_code == StatusCode.SUCCESS and pnl_response[0]["ret_code"] == 0:
-            if pnl_response[0]["result"]['data'] is not None:
-                for closed in pnl_response[0]["result"]['data']:
-                    self.dday[req["day"]].append(closed)
-                    self.pnl.append(closed)
+        self.i += 1
+        for request in req:
+            pnl_response, response_status_code = self.request_handler.send_post_request(
+                base_url=self.config["EXCHANGE_BASE_URL"],
+                port=self.config["EXCHANGE_PORT"],
+                end_point=self.config["EXCHANGE_POST_PNL_URL"],
+                timeout=self.config["EXCHANGE_TIMEOUT"],
+                error_log_dict=ErrorMessage.EXCHANGE_ERROR_LOGS,
+                body=request)
+            if response_status_code == StatusCode.SUCCESS and pnl_response[0]["ret_code"] == 0:
+                if pnl_response[0]["result"]['data'] is not None:
+                    for closed in pnl_response[0]["result"]['data']:
+                        self.dday[request["day"]].append(closed)
+                        self.pnl.append(closed)
 
         pass
 
@@ -436,6 +438,7 @@ class Report:
         coins = list(dict.fromkeys(coins))
         threads = []
         req_per_day = []
+
         for day in range(0, 7):
             self.dday.update({day: []})
             endtime = self.utctime.time_delta_timestamp(days=day)
@@ -452,9 +455,10 @@ class Report:
                                                                           day=day)
 
                 req_per_day.append(request_json)
-
-        for req in req_per_day:
-            thread = Thread(target=self.send_req, args=(req,))
+        j = 0
+        for i in range(1, 67):
+            thread = Thread(target=self.send_req, args=(req_per_day[j:i * 7],))
+            j = i * 7
             threads.append(thread)
             thread.start()
 
@@ -604,6 +608,3 @@ class Report:
                 week_pnl.append(pnl)
 
         return week_pnl
-
-
-
